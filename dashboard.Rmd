@@ -1,0 +1,614 @@
+---
+title: "Computer Literacy Statistics"
+output:
+  flexdashboard::flex_dashboard:
+    orientation: columns
+    vertical_layout: fill
+    theme: journal
+    social: menu
+    source_code: embed
+runtime: shiny
+resource_files:
+- Provincial Boundary Sri Lanka/Province_Boundary_Sri_Lanka.cpg
+- Provincial Boundary Sri Lanka/Province_Boundary_Sri_Lanka.dbf
+- Provincial Boundary Sri Lanka/Province_Boundary_Sri_Lanka.prj
+- Provincial Boundary Sri Lanka/Province_Boundary_Sri_Lanka.qmd
+- Provincial Boundary Sri Lanka/Province_Boundary_Sri_Lanka.sbn
+- Provincial Boundary Sri Lanka/Province_Boundary_Sri_Lanka.sbx
+- Provincial Boundary Sri Lanka/Province_Boundary_Sri_Lanka.shp.xml
+- Provincial Boundary Sri Lanka/Province_Boundary_Sri_Lanka.shx
+---
+
+```{r setup, include=FALSE}
+library(flexdashboard)
+
+library(ggplot2)
+library(tidyverse)
+library(viridis)
+library(sf)
+library(shiny)
+library(leaflet)
+library(bslib)
+library(magrittr)
+library(patchwork)
+library(plotly)
+
+Household_data <- read_csv("Datasets/Household computer ownership.csv")
+
+Computer_literacy <- read_csv("Datasets/Computer literacy.csv")
+
+Literacy_Rate <- read_csv("Datasets/Literacy Rate.csv")
+
+digital_literacy <- read_csv("Datasets/digital literacy.csv")
+
+internet <- read_csv("Datasets/internet.csv")
+
+```
+
+
+# Computer Literacy
+
+
+## Column {data-width="375"}
+-----------------------------------------------------------------------
+
+
+### Computer literacy rate (2023) {.value-box}
+
+```{r}
+  valueBox(value = 39 , icon = "fa-laptop")
+```
+
+### Computer literacy rate in Sri Lanka by province
+
+```{r, include=FALSE}
+
+provinces_sf <- st_read("Provincial Boundary Sri Lanka/Province_Boundary_Sri_Lanka.shp")
+
+literacy_province_data <- Computer_literacy %>%
+  filter(Type == "Province")
+
+literacy_provinces_map <- provinces_sf |>
+  left_join(literacy_province_data, by = c("ADM1_EN" = "Category"))
+
+```
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+
+ui <- fluidPage(
+  sidebarLayout(
+    sidebarPanel(
+      selectInput("year", "Select Year:", choices = sort(unique(literacy_province_data$year)), selected = max(literacy_province_data$year, na.rm = TRUE))
+    ),
+    mainPanel(
+      leafletOutput("map", height = "80vh")
+    )
+  )
+)
+
+server <- function(input, output, session) {
+  output$map <- renderLeaflet({
+    literacy_province_data_year <- literacy_province_data %>% filter(year == input$year)
+    literacy_province_map_year <- provinces_sf %>%
+      left_join(literacy_province_data_year, by = c("ADM1_EN" = "Category"))
+    pal <- colorNumeric(palette = "YlOrRd", domain = literacy_province_map_year$rate, na.color = "lightgrey")
+    literacy_province_map_centroids <- st_centroid(literacy_province_map_year)
+    
+    leaflet(literacy_province_map_year) %>%
+      addProviderTiles("CartoDB.Positron") %>%
+      addPolygons(
+        fillColor = ~pal(rate),
+        color = "black",
+        weight = 1,
+        opacity = 1,
+        fillOpacity = 0.7,
+        label = ~paste0(ADM1_EN, ": ", rate, "%"),
+        highlightOptions = highlightOptions(
+          weight = 3,
+          color = "#666",
+          fillOpacity = 0.9,
+          bringToFront = TRUE)
+      ) %>%
+      addLabelOnlyMarkers(
+        data = literacy_province_map_centroids,
+        lng = ~st_coordinates(geometry)[,1],
+        lat = ~st_coordinates(geometry)[,2],
+        label = ~ADM1_EN,
+        labelOptions = labelOptions(noHide = TRUE, direction = 'center', textOnly = TRUE, style = list("font-weight" = "bold", "color" = "black", "font-size" = "12px"))
+      ) %>%
+      addLegend(
+        pal = pal,
+        values = ~rate,
+        title = "Computer Literacy Rate (%)",
+        position = "bottomright"
+      )
+  })
+}
+
+shinyApp(ui, server)
+
+```
+
+
+
+## Column {data-width="350"}
+-----------------------------------------------------------------------
+
+
+### Digital literacy rate (2023) {.value-box}
+
+```{r}
+  valueBox(value = 63.5 , icon = "fa-mobile")
+
+```
+
+### Computer Literacy Rate in Sri Lanka by Gender
+
+```{r,fig.height=6, fig.width=10}
+
+all <- Computer_literacy %>%
+  filter(Category == "Sri Lanka") %>%
+  mutate(Group = "Total")
+
+genderwise <- Literacy_Rate %>%
+  filter(Category %in% c("Male", "Female")) %>%
+  rename(Group = Category)
+
+plot_data <- bind_rows(all, genderwise)
+
+ggplot(plot_data, aes(x = year, y = rate, color = Group)) +
+  geom_line(size = 2) +
+  geom_point(size = 3) +
+  geom_text(aes(label = rate), vjust = -1, size = 4, fontface = "bold", show.legend = FALSE) +
+  scale_x_continuous(
+    breaks = 2014:2023,
+    name = NULL
+  ) +
+  scale_y_continuous(
+    name = "Computer Literacy Rate (%)"
+  ) +
+  scale_color_viridis_d(option = "C", end = 0.7) +
+  labs(
+    x = NULL,
+    y = "Computer Literacy Rate (%)"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.y = element_text(size = 14),
+    axis.text.x = element_text(face = "bold", size = 14),
+    axis.title.y = element_text(size = 18,face = "bold")
+  )
+
+```
+
+### Computer literacy rate in Sri Lanka by Education
+
+```{r,fig.height=6, fig.width=12}
+
+Education <- Literacy_Rate %>%
+  filter(Type == "Educational attainment") %>%
+  arrange(rate)
+
+P1 <- ggplot(Education, aes(x = factor(year), y = rate, fill = factor(year), text = paste0(Category, "<br>Year: ", year, "<br>Rate: ", rate, "%"))) +
+  geom_col(show.legend = FALSE) +
+  facet_grid(. ~ Category) +
+  scale_fill_viridis_d(option = "C", end = 0.8) +
+  labs(
+    x = NULL,
+    y = "Computer Literacy Rate (%)"
+    ) +
+  theme_minimal() +
+  theme(
+    strip.text = element_text(size = 5, colour = "white"),
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 9),
+    panel.spacing = unit(0.3, "lines")
+  ) +
+  theme(
+    axis.title.y = element_text(face = "bold")
+  )
+
+ggplotly(P1, tooltip = "text")
+
+```
+
+
+
+## Column {data-width="300"}
+-----------------------------------------------------------------------
+
+
+### Household Computer Ownership rate (2023) {.value-box}
+
+```{r}
+  valueBox(value = 20.2 , icon = "fa-desktop")
+
+```
+
+### Computer Literacy Rate in Sri Lanka and by Language literacy
+
+```{r,fig.width=12}
+
+Language <- Literacy_Rate %>%
+  filter(Type == "Language literacy") %>%
+  rename(Group = Category)
+
+P2 <- ggplot(Language, aes(x = year, y = rate, color = Group, group = Group,
+                           text = paste0(Group, "<br>Year: ", year, "<br>Rate: ", rate, "%"))) +
+  geom_line(size = 1) +
+  geom_point(size = 2) +
+  scale_x_continuous(
+    name = NULL
+  ) +
+  scale_y_continuous(
+    limits = c(0, 80),
+    name = "Computer Literacy Rate (%)"
+  ) +
+  scale_color_viridis_d(option = "C", end = 0.8) +
+  labs(
+    x = NULL,
+    y = "Computer Literacy Rate (%)",
+    color = "Group"
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "top"
+  )
+
+ggplotly(P2, tooltip = "text")
+
+```
+
+### Computer literacy among Unemployed population (aged 15 – 69 years) (2023)
+
+```{r}
+
+unemployment <- Literacy_Rate %>%
+  filter(Subcategory == "unemployment") %>%
+  mutate(
+    highlight = ifelse(Category == "25 - 29", "highlight", "normal")
+  )
+
+ggplot(unemployment, aes(x = Category, y = rate, fill = highlight)) +
+  geom_col(show.legend = FALSE) +
+  geom_text(aes(label = rate), hjust = 1.2, color = "black", size = 4) +
+  scale_fill_manual(values = c("highlight" = "maroon", "normal" = "darkorange")) +
+  coord_flip() +
+  labs(
+    x = "Age group",
+    y = "Computer Literacy Rate (%)"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.title.x = element_text(face = "bold"),
+    axis.title.y = element_text(face = "bold")
+  )
+
+```
+
+
+
+# Digital literacy
+
+
+## Column {data-width="750"}
+-----------------------------------------------------------------------
+
+
+### Digital Literacy Rate & Computer Literacy Rate (2023)
+
+```{r, fig.height=8, fig.width=12}
+
+digital_literacy <- digital_literacy %>%
+  select(Type, Subcategory, `Computer Literacy Rate (%)`, `Digital Literacy Rate (%)`) %>%
+  rename(Category = Subcategory) %>%
+  pivot_longer(
+    cols = c(`Computer Literacy Rate (%)`, `Digital Literacy Rate (%)`),
+    names_to = "LiteracyType",
+    values_to = "Rate"
+  ) %>%
+  mutate(
+    LiteracyType = recode(LiteracyType,
+      "Computer Literacy Rate (%)" = "Computer Literacy",
+      "Digital Literacy Rate (%)" = "Digital Literacy"
+    )
+  )
+
+make_plot <- function(data, type_label, show_legend = FALSE, rotate_x = FALSE) {
+  data <- data %>% filter(Type == type_label)
+  group_levels <- unique(data$Category)
+  data$Category <- factor(data$Category, levels = group_levels)
+  
+  p <- ggplot(data, aes(x = Category, y = Rate, fill = LiteracyType)) +
+    geom_col(position = position_dodge(width = 0.8), width = 0.6) +
+    geom_text(
+      aes(label = Rate),
+      position = position_dodge(width = 0.8),
+      vjust = -0.3, size = 4, fontface = "bold", color = "black"
+    ) +
+   scale_fill_viridis_d(option = "C", end = 0.8)+
+    labs(
+      x = NULL, y = NULL
+    ) +
+    theme_minimal(base_size = 12) +
+    theme(
+      axis.text = element_text(size = 14),
+      axis.text.x = element_text(size = 14),
+      axis.title = element_blank(),
+      plot.title = element_blank(),
+      legend.position = if (show_legend) "top" else "none",
+      plot.margin = margin(2, 2, 2, 2, "pt")
+    ) +
+    ylim(0, 100)
+  
+  if (rotate_x) {
+    p <- p + theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  }
+  if (show_legend) {
+    p <- p + guides(fill = guide_legend(title = NULL, nrow = 1, byrow = TRUE))
+  }
+  p
+}
+
+p_total  <- make_plot(digital_literacy, "Total", show_legend = TRUE)
+p_sex    <- make_plot(digital_literacy, "Sex")
+p_sector <- make_plot(digital_literacy, "Sector")
+
+
+(p_total | p_sex | p_sector) +
+  plot_layout(heights = c(1, 1.2), guides = "collect") +
+  plot_annotation(
+    theme = theme(
+      legend.position = "top"
+    )
+  )
+
+
+```
+
+
+
+## Column {data-width="350"}
+-----------------------------------------------------------------------
+
+
+### Digital Literacy Rate (2023)
+
+```{r}
+
+age_data <- digital_literacy %>%
+  filter(Type == "Age group")
+
+digital <- age_data %>% filter(LiteracyType == "Digital Literacy")
+
+offset <- 15
+
+ggplot(digital, aes(x = Category, y = Rate, fill = Category)) +
+  geom_col(width = 1, color = "white") +
+  geom_text(aes(y = Rate + offset, label = Rate), size = 3, fontface = "bold", color = "black") +
+  coord_polar(start = 0) +
+  scale_fill_viridis_d(option = "C", end = 0.8) +
+  labs(title = "Digital Literacy Rate by Age Group (2023)") +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_blank(),
+    axis.text.y = element_blank(),
+    axis.title = element_blank(),
+    panel.grid = element_blank(),
+    plot.title = element_text(hjust = 0.5, face = "bold")
+  )
+
+
+```
+
+
+### Computer Literacy Rate (2023)
+
+```{r}
+
+computer <- age_data %>% filter(LiteracyType == "Computer Literacy")
+
+offset <- 15
+
+ggplot(computer, aes(x = Category, y = Rate, fill = Category)) +
+  geom_col(width = 1, color = "white") +
+  geom_text(aes(y = Rate + offset, label = Rate), size = 3, fontface = "bold", color = "black") +
+  coord_polar(start = 0) +
+  scale_fill_viridis_d(option = "D", end = 0.8) +
+  labs(title = "Computer Literacy Rate by Age Group (2023)") +
+  theme_minimal() +
+  theme(
+    axis.text = element_blank(),
+    axis.title = element_blank(),
+    panel.grid = element_blank(),
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+  )
+
+
+```
+
+
+# Household Computer Ownership
+
+
+## Column {data-width="450"}
+-----------------------------------------------------------------------
+
+
+### Percentage of computer or laptop owned households by province (2023)
+
+```{r, include=FALSE}
+
+province_data <- Household_data |>
+  filter(!sector_province %in% c("Sri Lanka", "Urban", "Rural", "Estate")) |>
+  mutate(
+    sector_province = recode(
+      sector_province,
+      "North-western" = "North Western",
+      "North-central" = "North Central"
+    )
+  )
+
+provinces_map <- provinces_sf |>
+  left_join(province_data, by = c("ADM1_EN" = "sector_province"))
+
+provinces_map_2023 <- provinces_map %>% filter(year == 2023)
+
+provinces_map_2023 <- provinces_map_2023 %>%
+  mutate(centroid = st_centroid(geometry))
+
+centroids_coords <- st_coordinates(provinces_map_2023$centroid)
+provinces_map_2023$centroid_x <- centroids_coords[,1]
+provinces_map_2023$centroid_y <- centroids_coords[,2]
+
+provinces_map_2023$label <- paste0(provinces_map_2023$ADM1_EN, "\n", provinces_map_2023$value, "%")
+
+provinces_map_2023$label_x <- provinces_map_2023$centroid_x + 0.1  # adjust as needed
+provinces_map_2023$label_y <- provinces_map_2023$centroid_y + 0.2  # adjust as needed
+
+```
+
+```{r, fig.height=12, fig.width=6}
+
+
+ggplot() +
+  geom_sf(data = provinces_map_2023, aes(fill = value), color = "black") +
+  scale_fill_gradient(
+    low = "#c6dbef",   # light blue
+    high = "#08306b",  # dark blue
+    name = NULL
+  )  +
+  geom_segment(
+    data = provinces_map_2023,
+    aes(x = label_x, y = label_y, xend = centroid_x, yend = centroid_y),
+    arrow = arrow(length = unit(0.3, "cm")), color = "maroon"
+  ) +
+  geom_label(
+    data = provinces_map_2023,
+    aes(x = label_x, y = label_y, label = label),
+    size = 4, fontface = "bold", color = "black"
+  ) +
+  theme_minimal() +
+  labs( x = NULL, y = NULL
+  ) +
+   theme(
+    legend.position = "top",
+    legend.key.width = unit(2, "cm"),
+    legend.key.height = unit(0.5, "cm")
+  )
+
+
+```
+
+
+
+## Column {data-width="350"}
+-----------------------------------------------------------------------
+
+### Percentage of computer or laptop owned households in Sri Lanka by Year
+
+```{r}
+
+total <- Household_data |>
+  filter(sector_province == "Sri Lanka")
+
+ggplot(total, aes(x = year, y = value)) +
+  annotate("rect", xmin = 2020, xmax = 2022, ymin = -Inf, ymax = Inf, 
+           fill = "orange", alpha = 0.15) +
+  annotate("text", x = 2021, y = 17, label = "COVID-19 Period", color = "brown", size = 4, fontface = "bold") +
+  geom_line(color = "#304ffe", size = 1.2) +
+  geom_point(color = "#ff1744", size = 3) +
+  geom_text(aes(label = value), vjust = -1, size = 3.5, fontface = "bold") +
+  scale_x_continuous(
+    breaks = 2014:2023,
+    name = NULL
+  ) +
+  scale_y_continuous(
+    limits = c(0, 25),
+    name = "Desktop or Laptop(%)"
+  ) +
+  labs(
+    x = NULL,
+    y = "Desktop or Laptop(%)"
+    ) +
+  theme_minimal() +
+theme(
+    axis.title.y = element_text(face = "bold")
+  )
+
+```
+
+### Percentage of computer or laptop owned households by Sector
+
+```{r}
+sector <- Household_data |>
+  filter(sector_province %in% c("Urban", "Rural", "Estate"))
+
+ggplot(sector, aes(x = year, y = value, fill = sector_province)) + 
+  geom_bar(position = "dodge", stat = "identity") +
+  geom_text(aes(label = value), 
+            position = position_dodge(width = 0.9), 
+            vjust = -0.5, size = 3) +
+  scale_fill_viridis_d(option = "C", end = 0.8) +
+  labs(
+    x = NULL,
+    y = "Desktop or Laptop(%) ",
+    fill = "Sector"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.title.y = element_text(face = "bold")
+  )
+
+```
+
+
+
+## Column {data-width="350"}
+-----------------------------------------------------------------------
+
+
+### Internet Usage in Sri Lanka
+
+```{r, fig.height=12, fig.width=6}
+
+internet_total <- internet %>% filter(Type == "Total")
+
+p1 <- ggplot(internet_total, aes(x = Year, y = `Internet (%)`)) +
+  annotate("rect", xmin = 2020, xmax = 2022, ymin = -Inf, ymax = Inf, 
+           fill = "orange", alpha = 0.2) +
+  annotate("text", x = 2021, y = 17, label = "COVID-19 Period", color = "brown", size = 4, fontface = "bold") +
+  geom_segment(aes(x = Year, xend = Year, y = 0, yend = `Internet (%)`), color = "orange", size = 1.2) +
+  geom_point(color = "#ff1744", size = 5) +
+  geom_text(aes(label = `Internet (%)`), vjust = -1, size = 3) +
+  labs(
+    x = "Year",
+    y = "Internet Usage (%)",
+    title = "Internet Usage in Sri Lanka by Year"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    axis.text.x = element_text(face = "bold", size = 12),
+    plot.title = element_text(face = "bold", hjust = 0.5)
+  )
+
+
+internet_sector <- internet %>% filter(Type == "Sector", Year == 2023)
+
+p2 <- ggplot(internet_sector, aes(x = Subcategory, y = `Internet (%)`, fill = Subcategory)) +
+  geom_col(width = 0.6, show.legend = FALSE) +
+  geom_text(aes(label = `Internet (%)`), vjust = -0.3, size = 4, fontface = "bold") +
+  scale_fill_viridis_d(option = "C", end = 0.8) +
+  labs(
+    x = NULL,
+    y = "Internet Usage (%)",
+    title = "Internet Usage in Sri Lanka by Sector (2023)"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    axis.text.x = element_text(face = "bold", size = 12),
+    plot.title = element_text(face = "bold", hjust = 0.5)
+  )
+
+p1 / p2 + plot_layout(heights = c(1, 1))
+
+```
